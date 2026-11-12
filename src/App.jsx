@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Lock, User, Phone, Mail, FileText, Calendar, Camera, Map,
   CheckCircle, LogOut, Plus, Link as LinkIcon, FolderLock, FolderOpen,
-  PenTool, AlertCircle, X, Check
+  PenTool, AlertCircle, X, Check, Paperclip, Pencil
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -13,6 +13,10 @@ import {
   getFirestore, collection, query, where, orderBy, onSnapshot,
   doc, setDoc, updateDoc, deleteDoc, getDocs, serverTimestamp
 } from 'firebase/firestore';
+import {
+  getStorage, ref as sRef, uploadBytesResumable, getDownloadURL,
+  deleteObject, listAll
+} from 'firebase/storage';
 
 // ============================================================
 // 1. Firebase 設定（請在 .env 與 Vercel 環境變數中設定）
@@ -26,18 +30,20 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// 設計師（管理員）Email 白名單：僅用於決定畫面，真正的權限由 firestore.rules 把關
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 const PROJECTS_PATH = ['artifacts', 'a41-design', 'public', 'data', 'projects'];
 const projectsCol = () => collection(db, ...PROJECTS_PATH);
 const projectRef = (id) => doc(db, ...PROJECTS_PATH, id);
 const sigCol = (id) => collection(db, ...PROJECTS_PATH, id, 'signatures');
+
+const MAX_FILE_MB = 50;
 
 // ============================================================
 // 2. 共用小工具
@@ -52,10 +58,44 @@ const fmtTs = (ts) => {
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
+const fmtSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((b || 0) / 1024))} KB`);
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const isSafeUrl = (s) => /^https?:\/\//i.test(s);
+// 舊資料沒有 kind 欄位，視為連結
+const itemKind = (item) => item.kind || (item.filePath ? 'file' : 'link');
 
-// 監聽某專案的回簽紀錄 → 回傳 { [itemId]: {signedAt, signedByEmail, ...} }
+// 開啟 Storage 檔案：先同步開空白分頁（避免被手機瀏覽器擋彈窗），取得網址後再導向
+async function openStoredFile(path, showToast) {
+  const w = window.open('', '_blank');
+  try {
+    const url = await getDownloadURL(sRef(storage, path));
+    if (w) w.location.href = url; else window.location.href = url;
+  } catch (err) {
+    console.error(err);
+    if (w) w.close();
+    showToast('無法開啟檔案，請稍後再試。');
+  }
+}
+
+async function removeStoredFile(path) {
+  try { await deleteObject(sRef(storage, path)); }
+  catch (err) { console.warn('delete file failed:', err); }
+}
+
+function uploadFile(projectId, itemId, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const safe = file.name.replace(/[^\w.\-\u4e00-\u9fff]+/g, '_');
+    const path = `projects/${projectId}/${itemId}_${safe}`;
+    const task = uploadBytesResumable(sRef(storage, path), file);
+    task.on(
+      'state_changed',
+      (s) => onProgress(Math.round((s.bytesTransferred / s.totalBytes) * 100)),
+      reject,
+      () => resolve({ filePath: path, fileName: file.name, fileSize: file.size })
+    );
+  });
+}
+
 function useSignatures(projectId) {
   const [sigs, setSigs] = useState({});
   useEffect(() => {
@@ -84,7 +124,7 @@ const primaryBtn = 'bg-[#004A60] text-[#F8BB72]';
 function ModalShell({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] overflow-y-auto">
         <div className="p-4 border-b flex justify-between items-center bg-[#004A60]">
           <h3 className="font-bold text-lg text-[#F8BB72]">{title}</h3>
           <button onClick={onClose} className="text-white/70 hover:text-white transition-colors">
@@ -114,11 +154,12 @@ function ConfirmModal({ message, danger, onConfirm, onClose }) {
   );
 }
 
-function AddProjectModal({ onSubmit, onClose }) {
-  const [name, setName] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [clientEmail, setClientEmail] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
+// 新增 / 編輯專案資料
+function ProjectFormModal({ initial, onSubmit, onClose }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [clientName, setClientName] = useState(initial?.clientName || '');
+  const [clientEmail, setClientEmail] = useState(initial?.clientEmail || '');
+  const [clientPhone, setClientPhone] = useState(initial?.clientPhone || '');
   const [err, setErr] = useState('');
 
   const submit = () => {
@@ -133,7 +174,7 @@ function AddProjectModal({ onSubmit, onClose }) {
   };
 
   return (
-    <ModalShell title="✨ 新增專案" onClose={onClose}>
+    <ModalShell title={initial ? '✏️ 編輯專案資料' : '✨ 新增專案'} onClose={onClose}>
       <div className="space-y-4">
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div>
@@ -147,44 +188,113 @@ function AddProjectModal({ onSubmit, onClose }) {
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">業主 Google 帳號 (Email)</label>
           <input type="email" className={inputCls} placeholder="xxx@gmail.com" value={clientEmail} onChange={e => setClientEmail(e.target.value)} />
-          <p className="text-xs text-gray-400 mt-1">業主需使用此 Google 帳號登入才能看到專案</p>
+          <p className="text-xs text-gray-400 mt-1">業主需使用此 Google 帳號登入才能看到專案{initial ? '；修改後舊帳號將無法再檢視' : ''}</p>
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">聯絡電話（選填，僅供設計師備註）</label>
           <input type="tel" className={inputCls} value={clientPhone} onChange={e => setClientPhone(e.target.value)} />
         </div>
-        <button onClick={submit} className={`w-full py-3 rounded-lg font-bold mt-2 shadow-md ${primaryBtn}`}>建立專案</button>
+        <button onClick={submit} className={`w-full py-3 rounded-lg font-bold mt-2 shadow-md ${primaryBtn}`}>
+          {initial ? '儲存變更' : '建立專案'}
+        </button>
       </div>
     </ModalShell>
   );
 }
 
-function AddItemModal({ onSubmit, onClose }) {
-  const [title, setTitle] = useState('');
-  const [link, setLink] = useState('');
+// 新增 / 編輯檔案項目：NAS 連結 或 上傳檔案
+function ItemFormModal({ initial, onSubmit, onClose }) {
+  const hadFile = !!initial && itemKind(initial) === 'file';
+  const [title, setTitle] = useState(initial?.title || '');
+  const [kind, setKind] = useState(initial ? itemKind(initial) : 'link');
+  const [link, setLink] = useState(initial?.nasLink || '');
+  const [file, setFile] = useState(null);
   const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  const submit = () => {
+  const submit = async () => {
     if (!title.trim()) return setErr('請輸入標題');
-    if (!isSafeUrl(link.trim())) return setErr('連結必須以 http:// 或 https:// 開頭');
-    onSubmit({ title: title.trim(), nasLink: link.trim() });
+    if (kind === 'link' && !isSafeUrl(link.trim())) return setErr('連結必須以 http:// 或 https:// 開頭');
+    if (kind === 'file') {
+      if (!file && !hadFile) return setErr('請選擇要上傳的檔案');
+      if (file && file.size > MAX_FILE_MB * 1024 * 1024) return setErr(`檔案不可超過 ${MAX_FILE_MB} MB`);
+    }
+    setErr(''); setSaving(true);
+    try {
+      await onSubmit({ title: title.trim(), kind, nasLink: link.trim(), file }, setProgress);
+    } catch (e) {
+      console.error(e);
+      setErr(e?.code?.startsWith('storage/')
+        ? '上傳失敗：尚未啟用 Storage，或沒有上傳權限。'
+        : '儲存失敗，請稍後再試。');
+      setSaving(false);
+    }
   };
 
+  const tabCls = (active) =>
+    `flex-1 py-2 rounded-lg text-sm font-bold transition-all ${active ? 'bg-[#004A60] text-[#F8BB72] shadow' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`;
+
   return (
-    <ModalShell title="📄 新增檔案連結" onClose={onClose}>
+    <ModalShell title={initial ? '✏️ 編輯項目' : '📄 新增檔案'} onClose={saving ? () => {} : onClose}>
       <div className="space-y-4">
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">標題</label>
-          <input className={inputCls} placeholder="例如：平面配置圖 V2" value={title} onChange={e => setTitle(e.target.value)} />
+          <input className={inputCls} placeholder="例如：平面配置圖 V2" value={title} onChange={e => setTitle(e.target.value)} disabled={saving} />
         </div>
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1">NAS 分享連結 (URL)</label>
-          <input className={inputCls} placeholder="https://..." value={link} onChange={e => setLink(e.target.value)} />
+
+        <div className="flex gap-2">
+          <button type="button" className={tabCls(kind === 'link')} onClick={() => setKind('link')} disabled={saving}>NAS 分享連結</button>
+          <button type="button" className={tabCls(kind === 'file')} onClick={() => setKind('file')} disabled={saving}>上傳檔案</button>
         </div>
-        <button onClick={submit} className={`w-full py-3 rounded-lg font-bold mt-2 shadow-md ${primaryBtn}`}>確認新增</button>
+
+        {kind === 'link' ? (
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">NAS 分享連結 (URL)</label>
+            <input className={inputCls} placeholder="https://..." value={link} onChange={e => setLink(e.target.value)} disabled={saving} />
+          </div>
+        ) : (
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">選擇檔案（上限 {MAX_FILE_MB} MB）</label>
+            <input type="file" className="w-full text-sm" onChange={e => setFile(e.target.files?.[0] || null)} disabled={saving} />
+            {hadFile && !file && (
+              <p className="text-xs text-gray-500 mt-2">目前檔案：{initial.fileName}（不選擇新檔案則保留）</p>
+            )}
+          </div>
+        )}
+
+        {saving && kind === 'file' && file && (
+          <div>
+            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-[#F8BB72] transition-all" style={{ width: `${progress}%` }}></div>
+            </div>
+            <p className="text-xs text-gray-500 mt-1 text-center">上傳中 {progress}%，請勿關閉視窗</p>
+          </div>
+        )}
+
+        <button onClick={submit} disabled={saving} className={`w-full py-3 rounded-lg font-bold mt-2 shadow-md ${primaryBtn} disabled:opacity-50`}>
+          {saving ? '處理中...' : initial ? '儲存變更' : '確認新增'}
+        </button>
       </div>
     </ModalShell>
+  );
+}
+
+// 依項目類型顯示「開啟連結」或「開啟檔案」
+function ItemOpenButton({ item, showToast, className, label }) {
+  if (itemKind(item) === 'file') {
+    return (
+      <button type="button" onClick={() => openStoredFile(item.filePath, showToast)} className={className}>
+        <Paperclip className="w-4 h-4 mr-2 flex-shrink-0" /> {label}
+      </button>
+    );
+  }
+  if (!isSafeUrl(item.nasLink)) return null;
+  return (
+    <a href={item.nasLink} target="_blank" rel="noopener noreferrer" className={className}>
+      <LinkIcon className="w-4 h-4 mr-2 flex-shrink-0" /> {label}
+    </a>
   );
 }
 
@@ -327,7 +437,6 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
     const { itemId } = confirm;
     setConfirm(null);
     try {
-      // 回簽是「只能新增、不能修改」的獨立文件，由 Firestore Rules 保證不可逆
       await setDoc(doc(sigCol(project.id), itemId), {
         signedAt: serverTimestamp(),
         signedByEmail: authUser.email.toLowerCase(),
@@ -337,6 +446,18 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
     } catch (err) {
       console.error(err);
       showToast('回簽失敗，請稍後再試。');
+      return;
+    }
+    // 通知設計師（失敗不影響回簽本身）
+    try {
+      const token = await authUser.getIdToken();
+      await fetch('/api/notify-sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ projectId: project.id, itemId }),
+      });
+    } catch (err) {
+      console.warn('notify failed:', err);
     }
   };
 
@@ -412,11 +533,12 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
                           <div className="mb-6">
                             <h4 className="font-bold text-gray-800 text-lg mb-2 line-clamp-2">{item.title}</h4>
                             <p className="text-xs font-medium text-gray-500 mb-3 bg-gray-100 inline-block px-2 py-1 rounded">建檔日：{item.date}</p>
-                            {isSafeUrl(item.nasLink) && (
-                              <a href={item.nasLink} target="_blank" rel="noopener noreferrer"
-                                className="flex items-center justify-center p-3 rounded-lg bg-[#004A60] text-white hover:bg-opacity-90 font-bold shadow-sm">
-                                <LinkIcon className="w-4 h-4 mr-2" /> 檢視 / 下載檔案
-                              </a>
+                            <ItemOpenButton
+                              item={item} showToast={showToast} label="檢視 / 下載檔案"
+                              className="flex items-center justify-center p-3 rounded-lg bg-[#004A60] text-white hover:bg-opacity-90 font-bold shadow-sm w-full"
+                            />
+                            {itemKind(item) === 'file' && (
+                              <p className="text-xs text-gray-400 mt-2 truncate">{item.fileName}（{fmtSize(item.fileSize)}）</p>
                             )}
                           </div>
                           <div className="pt-4 border-t border-gray-100">
@@ -471,12 +593,11 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
   const project = projects.find(p => p.id === activeId) || null;
   const sigs = useSignatures(project?.id);
 
-  // 切換專案或雲端內容變動時，同步總覽草稿
   useEffect(() => { setDraft(project?.overview || ''); }, [project?.id, project?.overview]);
 
   const patchProject = async (data) => {
-    try { await updateDoc(projectRef(project.id), data); }
-    catch (err) { console.error(err); showToast('儲存失敗，請檢查網路或權限。'); }
+    try { await updateDoc(projectRef(project.id), data); return true; }
+    catch (err) { console.error(err); showToast('儲存失敗，請檢查網路或權限。'); return false; }
   };
 
   const createProject = async (data) => {
@@ -491,25 +612,64 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
     } catch (err) { console.error(err); showToast('建立失敗，請檢查權限。'); }
   };
 
-  const addItem = async ({ title, nasLink }) => {
-    const { type } = modal.payload;
-    const item = { id: 'doc_' + crypto.randomUUID(), title, date: todayStr(), nasLink };
-    await patchProject({ [type]: [item, ...(project[type] || [])] });
-    setModal(null); showToast('項目新增成功');
+  const editProject = async (data) => {
+    if (await patchProject(data)) { setModal(null); showToast('專案資料已更新'); }
+  };
+
+  // 新增或編輯項目（連結 / 上傳檔案）
+  const saveItem = async (type, existing, v, onProgress) => {
+    if (existing && sigs[existing.id]) throw new Error('signed');
+    const id = existing?.id || 'doc_' + crypto.randomUUID();
+    let item = existing
+      ? { ...existing }
+      : { id, date: todayStr() };
+    item.title = v.title;
+    let newUpload = null;
+    let oldPathToDelete = null;
+
+    if (v.kind === 'link') {
+      if (existing?.filePath) oldPathToDelete = existing.filePath;
+      delete item.filePath; delete item.fileName; delete item.fileSize;
+      item = { ...item, kind: 'link', nasLink: v.nasLink };
+    } else if (v.file) {
+      newUpload = await uploadFile(project.id, id, v.file, onProgress);
+      if (existing?.filePath) oldPathToDelete = existing.filePath;
+      delete item.nasLink;
+      item = { ...item, kind: 'file', ...newUpload };
+    }
+
+    const list = project[type] || [];
+    const next = existing ? list.map(i => (i.id === id ? item : i)) : [item, ...list];
+    const ok = await patchProject({ [type]: next });
+    if (!ok) {
+      if (newUpload) await removeStoredFile(newUpload.filePath); // 寫入失敗，清掉剛上傳的檔案
+      throw new Error('save failed');
+    }
+    if (oldPathToDelete) await removeStoredFile(oldPathToDelete);
+    setModal(null);
+    showToast(existing ? '項目已更新' : '項目新增成功');
   };
 
   const deleteItem = async () => {
-    const { type, itemId } = modal.payload;
-    await patchProject({ [type]: (project[type] || []).filter(i => i.id !== itemId) });
-    setModal(null); showToast('項目已刪除');
+    const { type, item } = modal.payload;
+    const ok = await patchProject({ [type]: (project[type] || []).filter(i => i.id !== item.id) });
+    if (ok) {
+      if (item.filePath) await removeStoredFile(item.filePath);
+      showToast('項目已刪除');
+    }
+    setModal(null);
   };
 
   const deleteProject = async () => {
     const ans = window.prompt(`請輸入 "${project.name}" 來確認刪除整個專案`);
     if (ans !== project.name) return;
     try {
-      const snap = await getDocs(sigCol(project.id)); // 子集合不會自動刪除，需手動清除
-      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+      const sigSnap = await getDocs(sigCol(project.id));
+      await Promise.all(sigSnap.docs.map(d => deleteDoc(d.ref)));
+      try {
+        const files = await listAll(sRef(storage, `projects/${project.id}`));
+        await Promise.all(files.items.map(f => deleteObject(f)));
+      } catch (e) { console.warn('storage cleanup skipped:', e); }
       await deleteDoc(projectRef(project.id));
       setActiveId(null); showToast('專案已永久刪除');
     } catch (err) { console.error(err); showToast('刪除失敗'); }
@@ -568,13 +728,16 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
         </div>
       ) : (
         <div className="max-w-6xl mx-auto space-y-6 pb-20">
-          {/* 專案標題列 */}
           <div className="bg-white rounded-2xl shadow-sm p-6 lg:p-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative overflow-hidden">
             <div className={`absolute left-0 top-0 w-2 h-full ${project.status === 'closed' ? 'bg-gray-400' : 'bg-[#004A60]'}`}></div>
             <div>
               <h1 className="text-2xl lg:text-3xl font-black text-gray-800 flex items-center gap-3">
                 {project.status === 'closed' && <FolderLock className="w-7 h-7 text-gray-500" />}
                 {project.name}
+                <button onClick={() => setModal({ type: 'EDIT_PROJECT' })} title="編輯專案資料"
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-[#004A60] hover:bg-gray-100 transition-colors">
+                  <Pencil className="w-5 h-5" />
+                </button>
               </h1>
               <div className="flex flex-wrap items-center gap-4 mt-3 bg-gray-50 inline-flex p-2 rounded-lg border border-gray-100">
                 <span className="text-sm font-bold text-gray-600 flex items-center"><User className="w-4 h-4 mr-1 text-gray-400" /> {project.clientName}</span>
@@ -597,7 +760,6 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
             </div>
           </div>
 
-          {/* 總覽文字 */}
           <div className="bg-white rounded-2xl shadow-sm p-6 lg:p-8">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-black text-[#004A60] flex items-center">
@@ -614,7 +776,6 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
             />
           </div>
 
-          {/* 三大區塊 */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {Object.entries(SECTION_META).map(([type, { label, Icon }]) => {
               const items = project[type] || [];
@@ -627,7 +788,7 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
                       <Icon className="w-5 h-5 mr-2 text-[#F8BB72]" /> {label}
                       {focus && <span className={`ml-3 px-2 py-1 text-xs rounded-md font-bold ${type === 'drawings' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>當前重點</span>}
                     </h3>
-                    <button onClick={() => setModal({ type: 'ADD_ITEM', payload: { type } })}
+                    <button onClick={() => setModal({ type: 'ITEM', payload: { type, item: null } })}
                       className="px-4 py-2 rounded-lg text-sm font-bold flex items-center shadow-sm bg-[#F8BB72] text-[#004A60] hover:brightness-105">
                       <Plus className="w-4 h-4 mr-1" /> 新增檔案
                     </button>
@@ -639,11 +800,11 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
                     </div>
                   ) : (
                     <div className="overflow-x-auto flex-1">
-                      <table className="w-full text-left border-collapse min-w-[500px]">
+                      <table className="w-full text-left border-collapse min-w-[560px]">
                         <thead>
                           <tr className="text-gray-400 text-sm border-b">
                             <th className="pb-3 font-bold w-1/3">標題</th>
-                            <th className="pb-3 font-bold">NAS 連結</th>
+                            <th className="pb-3 font-bold">檔案 / 連結</th>
                             <th className="pb-3 font-bold text-center">回簽狀態</th>
                             <th className="pb-3 font-bold text-right">管理</th>
                           </tr>
@@ -652,17 +813,18 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
                           {items.map(item => {
                             const sig = sigs[item.id];
                             return (
-                              <tr key={item.id} className="hover:bg-gray-50 group">
+                              <tr key={item.id} className="hover:bg-gray-50">
                                 <td className="py-4 pr-2">
                                   <p className="font-bold text-gray-800 line-clamp-1">{item.title}</p>
                                   <p className="text-xs text-gray-400 mt-1">{item.date}</p>
                                 </td>
                                 <td className="py-4 pr-2">
-                                  {isSafeUrl(item.nasLink) && (
-                                    <a href={item.nasLink} target="_blank" rel="noopener noreferrer"
-                                      className="inline-flex items-center text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded text-sm">
-                                      <LinkIcon className="w-3 h-3 mr-1" /> 開啟
-                                    </a>
+                                  <ItemOpenButton
+                                    item={item} showToast={showToast} label="開啟"
+                                    className="inline-flex items-center text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded text-sm"
+                                  />
+                                  {itemKind(item) === 'file' && (
+                                    <p className="text-[10px] text-gray-400 mt-1 max-w-[140px] truncate">{item.fileName}（{fmtSize(item.fileSize)}）</p>
                                   )}
                                 </td>
                                 <td className="py-4 text-center">
@@ -677,10 +839,17 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
                                     <span className="inline-block text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">等待中</span>
                                   )}
                                 </td>
-                                <td className="py-4 text-right">
+                                <td className="py-4 text-right whitespace-nowrap">
                                   <button
-                                    onClick={() => setModal({ type: 'DELETE_ITEM', payload: { type, itemId: item.id } })}
-                                    className="text-red-400 hover:text-red-600 text-sm font-bold bg-white px-3 py-1 rounded shadow-sm border border-gray-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity">
+                                    onClick={() => setModal({ type: 'ITEM', payload: { type, item } })}
+                                    disabled={!!sig}
+                                    title={sig ? '已回簽的項目無法修改，如需更新請新增新版本' : '編輯'}
+                                    className="text-[#004A60] hover:bg-gray-100 text-sm font-bold bg-white px-3 py-1 rounded shadow-sm border border-gray-100 mr-2 disabled:opacity-30 disabled:cursor-not-allowed">
+                                    編輯
+                                  </button>
+                                  <button
+                                    onClick={() => setModal({ type: 'DELETE_ITEM', payload: { type, item, signed: !!sig } })}
+                                    className="text-red-400 hover:text-red-600 text-sm font-bold bg-white px-3 py-1 rounded shadow-sm border border-gray-100">
                                     刪除
                                   </button>
                                 </td>
@@ -704,10 +873,23 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
         </div>
       )}
 
-      {modal?.type === 'ADD_PROJECT' && <AddProjectModal onSubmit={createProject} onClose={() => setModal(null)} />}
-      {modal?.type === 'ADD_ITEM' && <AddItemModal onSubmit={addItem} onClose={() => setModal(null)} />}
+      {modal?.type === 'ADD_PROJECT' && <ProjectFormModal onSubmit={createProject} onClose={() => setModal(null)} />}
+      {modal?.type === 'EDIT_PROJECT' && project && <ProjectFormModal initial={project} onSubmit={editProject} onClose={() => setModal(null)} />}
+      {modal?.type === 'ITEM' && (
+        <ItemFormModal
+          initial={modal.payload.item}
+          onSubmit={(v, onProgress) => saveItem(modal.payload.type, modal.payload.item, v, onProgress)}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal?.type === 'DELETE_ITEM' && (
-        <ConfirmModal danger message="確定要刪除此檔案項目嗎？刪除後業主將無法看見。" onConfirm={deleteItem} onClose={() => setModal(null)} />
+        <ConfirmModal
+          danger
+          message={modal.payload.signed
+            ? '此項目業主已回簽。刪除後業主與你都將看不到此項目（回簽紀錄仍保留在資料庫中）。確定要刪除嗎？'
+            : '確定要刪除此項目嗎？刪除後業主將無法看見，已上傳的檔案也會一併刪除。'}
+          onConfirm={deleteItem} onClose={() => setModal(null)}
+        />
       )}
     </AppLayout>
   );
@@ -736,7 +918,6 @@ export default function App() {
     return onAuthStateChanged(auth, (u) => { setAuthUser(u); setAuthReady(true); });
   }, []);
 
-  // 即時監聽專案：管理員看全部；業主只查「自己 Email 且進行中」的專案
   useEffect(() => {
     setDbError('');
     if (!authUser?.email) { setProjects([]); return; }
