@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Lock, User, Phone, Mail, FileText, Calendar, Camera, Map,
   CheckCircle, LogOut, Plus, Link as LinkIcon, FolderLock, FolderOpen,
@@ -11,7 +11,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore, collection, query, where, orderBy, onSnapshot,
-  doc, setDoc, updateDoc, deleteDoc, getDocs, serverTimestamp
+  doc, setDoc, updateDoc, deleteDoc, deleteField, getDocs, serverTimestamp
 } from 'firebase/firestore';
 import {
   getStorage, ref as sRef, uploadBytesResumable, getDownloadURL,
@@ -59,6 +59,10 @@ const fmtTs = (ts) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 const fmtSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((b || 0) / 1024))} KB`);
+// 專案綁定的業主 Email 清單（相容舊資料的單一 clientEmail）
+const projectEmails = (p) => (p ? (p.clientEmails || (p.clientEmail ? [p.clientEmail] : [])) : []);
+const parseEmails = (text) =>
+  [...new Set(text.split(/[\s,;，；、]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const isSafeUrl = (s) => /^https?:\/\//i.test(s);
 // 舊資料沒有 kind 欄位，視為連結
@@ -158,17 +162,21 @@ function ConfirmModal({ message, danger, onConfirm, onClose }) {
 function ProjectFormModal({ initial, onSubmit, onClose }) {
   const [name, setName] = useState(initial?.name || '');
   const [clientName, setClientName] = useState(initial?.clientName || '');
-  const [clientEmail, setClientEmail] = useState(initial?.clientEmail || '');
+  const [emailsText, setEmailsText] = useState(projectEmails(initial).join('\n'));
   const [clientPhone, setClientPhone] = useState(initial?.clientPhone || '');
   const [err, setErr] = useState('');
 
   const submit = () => {
     if (!name.trim() || !clientName.trim()) return setErr('請填寫專案名稱與業主姓名');
-    if (!isEmail(clientEmail.trim())) return setErr('請輸入正確的業主 Google 帳號 Email');
+    const emails = parseEmails(emailsText);
+    if (emails.length === 0) return setErr('請至少填寫一個業主 Google 帳號 Email');
+    if (emails.length > 10) return setErr('一個專案最多可綁定 10 個帳號');
+    const bad = emails.find(e => !isEmail(e));
+    if (bad) return setErr(`Email 格式不正確：${bad}`);
     onSubmit({
       name: name.trim(),
       clientName: clientName.trim(),
-      clientEmail: clientEmail.trim().toLowerCase(),
+      clientEmails: emails,
       clientPhone: clientPhone.trim(),
     });
   };
@@ -183,12 +191,19 @@ function ProjectFormModal({ initial, onSubmit, onClose }) {
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">業主姓名</label>
-          <input className={inputCls} value={clientName} onChange={e => setClientName(e.target.value)} />
+          <input className={inputCls} placeholder="多位可一起填，例如：王大明、李小美" value={clientName} onChange={e => setClientName(e.target.value)} />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">業主 Google 帳號 (Email)</label>
-          <input type="email" className={inputCls} placeholder="xxx@gmail.com" value={clientEmail} onChange={e => setClientEmail(e.target.value)} />
-          <p className="text-xs text-gray-400 mt-1">業主需使用此 Google 帳號登入才能看到專案{initial ? '；修改後舊帳號將無法再檢視' : ''}</p>
+          <textarea
+            className={`${inputCls} h-24 resize-none`}
+            placeholder={'每行填一個，例如：\nhusband@gmail.com\nwife@gmail.com'}
+            value={emailsText} onChange={e => setEmailsText(e.target.value)}
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            可填多個（最多 10 個，用換行或逗號分隔），列出的帳號都能登入檢視此專案
+            {initial ? '；移除的帳號將無法再檢視' : ''}
+          </p>
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">聯絡電話（選填，僅供設計師備註）</label>
@@ -625,7 +640,7 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
                             {sig ? (
                               <div className="flex flex-wrap justify-between items-center gap-1 text-sm">
                                 <span className="font-bold text-green-600 flex items-center"><CheckCircle className="w-5 h-5 mr-1.5" /> 已回簽</span>
-                                <span className="text-xs text-gray-400">{fmtTs(sig.signedAt)}</span>
+                                <span className="text-xs text-gray-400">{sig.signedByName || sig.signedByEmail} · {fmtTs(sig.signedAt)}</span>
                               </div>
                             ) : (
                               <button
@@ -683,7 +698,7 @@ function DesignerItemRow({ item, sig, showToast, onEdit, onDelete }) {
         />
         {sig ? (
           <span className="inline-flex items-center text-xs font-bold text-green-700 bg-green-100 px-2.5 py-1.5 rounded-full border border-green-200">
-            <Check className="w-3 h-3 mr-1" strokeWidth={3} /> 已簽名 · {fmtTs(sig.signedAt)}
+            <Check className="w-3 h-3 mr-1" strokeWidth={3} /> 已簽名 · {sig.signedByName || sig.signedByEmail} · {fmtTs(sig.signedAt)}
           </span>
         ) : (
           <span className="inline-block text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1.5 rounded-full">等待中</span>
@@ -711,9 +726,21 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
   const [modal, setModal] = useState(null); // { type, payload }
   const [draft, setDraft] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const migratedRef = useRef(new Set());
 
   const project = projects.find(p => p.id === activeId) || null;
   const sigs = useSignatures(project?.id);
+
+  // 舊資料（單一 clientEmail）自動轉成新格式 clientEmails
+  useEffect(() => {
+    projects.forEach((p) => {
+      if (!p.clientEmails && p.clientEmail && !migratedRef.current.has(p.id)) {
+        migratedRef.current.add(p.id);
+        updateDoc(projectRef(p.id), { clientEmails: [p.clientEmail.toLowerCase()] })
+          .catch((e) => console.warn('migrate failed:', e));
+      }
+    });
+  }, [projects]);
 
   useEffect(() => { setDraft(project?.overview || ''); }, [project?.id, project?.overview]);
 
@@ -737,7 +764,7 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
   };
 
   const editProject = async (data) => {
-    if (await patchProject(data)) { setModal(null); showToast('專案資料已更新'); }
+    if (await patchProject({ ...data, clientEmail: deleteField() })) { setModal(null); showToast('專案資料已更新'); }
   };
 
   // 新增或編輯項目（連結 / 上傳檔案）
@@ -877,7 +904,7 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
               </h1>
               <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100">
                 <span className="text-sm font-bold text-gray-600 flex items-center"><User className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> {project.clientName}</span>
-                <span className="text-sm font-bold text-gray-600 flex items-center min-w-0"><Mail className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> <span className="break-all">{project.clientEmail}</span></span>
+                <span className="text-sm font-bold text-gray-600 flex items-center min-w-0"><Mail className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> <span className="break-all">{projectEmails(project).join('、')}</span></span>
                 {project.clientPhone && <span className="text-sm font-bold text-gray-600 flex items-center"><Phone className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> {project.clientPhone}</span>}
               </div>
             </div>
@@ -1013,7 +1040,7 @@ export default function App() {
       ? query(projectsCol(), orderBy('createdAt', 'desc'))
       : query(
           projectsCol(),
-          where('clientEmail', '==', authUser.email.toLowerCase()),
+          where('clientEmails', 'array-contains', authUser.email.toLowerCase()),
           where('status', '==', 'active')
         );
 
