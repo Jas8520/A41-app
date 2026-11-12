@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Lock, User, Phone, Mail, FileText, Calendar, Camera, Map,
   CheckCircle, LogOut, Plus, Link as LinkIcon, FolderLock, FolderOpen,
-  PenTool, AlertCircle, X, Check, Paperclip, Pencil
+  PenTool, AlertCircle, X, Check, Paperclip, Pencil, Menu
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -298,34 +298,81 @@ function ItemOpenButton({ item, showToast, className, label }) {
   );
 }
 
-function AppLayout({ sidebar, footerLabel, onLogout, toast, children }) {
+function AppLayout({ sidebar, footerLabel, onLogout, toast, children, mobileTitle, drawer, drawerOpen, setDrawerOpen, bottomNav }) {
+  const logo = (
+    <div>
+      <h2 className="font-black text-2xl tracking-wider text-[#F8BB72] leading-none">A41</h2>
+      <p className="text-xs text-white/60 tracking-widest mt-1">肆合設計</p>
+    </div>
+  );
+  const footer = (
+    <div className="p-4 border-t border-white/10 bg-black/20 text-xs text-gray-300 flex items-center justify-between gap-2">
+      <span className="truncate">{footerLabel}</span>
+      <span className="flex items-center flex-shrink-0"><span className="w-2 h-2 rounded-full bg-green-400 mr-2"></span>連線中</span>
+    </div>
+  );
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row font-sans">
-      <div className="w-full md:w-72 bg-[#004A60] text-white flex flex-col shadow-2xl z-10">
+    <div className="min-h-screen bg-gray-100 md:flex font-sans">
+      {/* 桌機：左側固定側邊欄 */}
+      <aside className="hidden md:flex md:w-72 md:flex-shrink-0 bg-[#004A60] text-white flex-col shadow-2xl z-10 md:h-screen md:sticky md:top-0">
         <div className="p-6 flex items-center justify-between border-b border-white/10">
-          <div>
-            <h2 className="font-black text-2xl tracking-wider text-[#F8BB72]">A41</h2>
-            <p className="text-xs text-white/60 tracking-widest mt-1">肆合設計</p>
-          </div>
+          {logo}
           <button onClick={onLogout} className="p-2 bg-white/5 hover:bg-red-500 transition-colors rounded-lg group" title="登出">
             <LogOut className="w-5 h-5 text-white/70 group-hover:text-white" />
           </button>
         </div>
         <div className="p-4 flex-1 overflow-y-auto space-y-2">{sidebar}</div>
-        <div className="p-4 border-t border-white/10 bg-black/20 text-xs text-gray-300 flex items-center justify-between gap-2">
-          <span className="truncate">{footerLabel}</span>
-          <span className="flex items-center flex-shrink-0"><span className="w-2 h-2 rounded-full bg-green-400 mr-2"></span>連線中</span>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-        {children}
-        {toast && (
-          <div className="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center z-50">
-            <CheckCircle className="w-5 h-5 text-green-400 mr-3" />
-            <span className="font-bold">{toast}</span>
-          </div>
+        {footer}
+      </aside>
+
+      {/* 手機：頂部列 */}
+      <header
+        className="md:hidden sticky top-0 z-30 bg-[#004A60] text-white flex items-center gap-3 px-3 pb-2.5 shadow-lg"
+        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top, 0px))' }}
+      >
+        {drawer && (
+          <button onClick={() => setDrawerOpen(true)} className="p-2.5 rounded-lg bg-white/10 active:bg-white/20" aria-label="開啟專案選單">
+            <Menu className="w-5 h-5" />
+          </button>
         )}
-      </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[#F8BB72] font-black tracking-wider text-sm leading-none">A41 肆合設計</p>
+          <p className="text-sm font-bold truncate mt-1">{mobileTitle}</p>
+        </div>
+        <button onClick={onLogout} className="p-2.5 rounded-lg bg-white/10 active:bg-red-500" aria-label="登出">
+          <LogOut className="w-5 h-5" />
+        </button>
+      </header>
+
+      {/* 手機：設計師專案抽屜 */}
+      {drawer && drawerOpen && (
+        <div className="md:hidden fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)}></div>
+          <aside className="absolute left-0 top-0 bottom-0 w-[85%] max-w-xs bg-[#004A60] text-white flex flex-col shadow-2xl">
+            <div className="p-4 flex items-center justify-between border-b border-white/10">
+              {logo}
+              <button onClick={() => setDrawerOpen(false)} className="p-2.5 rounded-lg bg-white/10" aria-label="關閉選單">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 flex-1 overflow-y-auto">{sidebar}</div>
+            {footer}
+          </aside>
+        </div>
+      )}
+
+      <main className="flex-1 min-w-0 p-3 sm:p-5 md:p-8 md:h-screen md:overflow-y-auto relative pb-24 md:pb-8">
+        {children}
+      </main>
+
+      {bottomNav}
+
+      {toast && (
+        <div className="fixed bottom-24 md:bottom-6 left-4 right-4 md:left-auto md:right-6 bg-gray-800 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center justify-center md:justify-start z-50">
+          <CheckCircle className="w-5 h-5 text-green-400 mr-3 flex-shrink-0" />
+          <span className="font-bold">{toast}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -341,7 +388,7 @@ function LoginScreen({ onGoogle, onDesigner, error, busy }) {
   return (
     <div className="min-h-screen bg-[#004A60] flex items-center justify-center p-4 font-sans">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div className="bg-[#004A60] p-8 text-center">
+        <div className="bg-[#004A60] p-6 sm:p-8 text-center">
           <h1 className="text-3xl font-black text-[#F8BB72] tracking-widest drop-shadow-md">A41</h1>
           <h2 className="text-xl font-bold text-white tracking-wider mt-1">DESIGN STUDIO</h2>
           <p className="text-gray-300 text-sm mt-3 border-t border-white/20 inline-block pt-2">肆合設計專案管理系統</p>
@@ -357,7 +404,7 @@ function LoginScreen({ onGoogle, onDesigner, error, busy }) {
           ))}
         </div>
 
-        <div className="p-8 space-y-5 bg-white">
+        <div className="p-6 sm:p-8 space-y-5 bg-white">
           {error && (
             <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center border border-red-100">
               <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />{error}
@@ -433,6 +480,8 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
   const project = projects.find(p => p.id === selectedId) || projects[0] || null;
   const sigs = useSignatures(project?.id);
 
+  const changeTab = (key) => { setActiveTab(key); window.scrollTo({ top: 0 }); };
+
   const doSign = async () => {
     const { itemId } = confirm;
     setConfirm(null);
@@ -461,6 +510,7 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
     }
   };
 
+  // 桌機側邊欄
   const sidebar = (
     <div className="space-y-3 mt-4">
       {projects.length > 1 && (
@@ -473,7 +523,7 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
         </select>
       )}
       {project && Object.entries(TAB_META).map(([key, { label, Icon }]) => (
-        <button key={key} onClick={() => setActiveTab(key)}
+        <button key={key} onClick={() => changeTab(key)}
           className={`w-full flex items-center p-4 rounded-xl font-bold transition-all ${activeTab === key ? 'bg-white text-[#004A60] shadow-lg scale-105' : 'text-white/70 hover:bg-white/10'}`}>
           <Icon className={`w-5 h-5 mr-3 ${activeTab === key ? 'text-[#F8BB72]' : ''}`} /> {label}
         </button>
@@ -481,76 +531,106 @@ function ClientView({ authUser, projects, error, onLogout, toast, showToast }) {
     </div>
   );
 
+  // 手機底部分頁列
+  const bottomNav = project && (
+    <nav
+      className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200 grid grid-cols-4 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+    >
+      {Object.entries(TAB_META).map(([key, { label, Icon }]) => (
+        <button key={key} onClick={() => changeTab(key)}
+          className={`relative flex flex-col items-center justify-center gap-1 py-2.5 text-xs font-bold ${activeTab === key ? 'text-[#004A60]' : 'text-gray-400'}`}>
+          {activeTab === key && <span className="absolute top-0 inset-x-6 h-1 rounded-b bg-[#F8BB72]"></span>}
+          <Icon className="w-5 h-5" /> {label}
+        </button>
+      ))}
+    </nav>
+  );
+
   return (
-    <AppLayout sidebar={sidebar} footerLabel={`👤 ${authUser.displayName || authUser.email}`} onLogout={onLogout} toast={toast}>
+    <AppLayout
+      sidebar={sidebar} footerLabel={`👤 ${authUser.displayName || authUser.email}`}
+      onLogout={onLogout} toast={toast} bottomNav={bottomNav}
+      mobileTitle={project?.name || '業主專區'}
+    >
       {!project ? (
-        <div className="h-full flex items-center justify-center">
-          <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md">
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-xl text-center max-w-md">
             <FolderLock className="w-12 h-12 mx-auto text-gray-400 mb-4" />
             <h2 className="text-xl font-black text-gray-800 mb-2">目前沒有可檢視的專案</h2>
-            <p className="text-gray-500 text-sm leading-relaxed">
+            <p className="text-gray-500 text-sm leading-relaxed break-words">
               {error || `Google 帳號 ${authUser.email} 尚未綁定任何進行中的專案，或專案已結案。如有疑問請聯繫肆合設計。`}
             </p>
           </div>
         </div>
       ) : (
-        <div className="max-w-4xl mx-auto space-y-6">
-          <div className="bg-white rounded-2xl shadow-sm p-6 lg:p-8 relative overflow-hidden">
+        <div className="max-w-4xl mx-auto space-y-4 md:space-y-6">
+          {projects.length > 1 && (
+            <select
+              className="md:hidden w-full p-3 rounded-xl bg-white border border-gray-200 font-bold text-[#004A60] outline-none"
+              value={project.id}
+              onChange={e => { setSelectedId(e.target.value); setActiveTab('overview'); }}
+            >
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm p-5 lg:p-8 relative overflow-hidden">
             <div className="absolute left-0 top-0 w-2 h-full bg-[#F8BB72]"></div>
-            <h1 className="text-2xl lg:text-3xl font-black text-gray-800">{project.name}</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-gray-800 break-words pl-1">{project.name}</h1>
             <span className={`inline-block mt-3 px-4 py-1.5 rounded-full text-sm font-bold shadow-sm ${project.phase === 'design' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
               {project.phase === 'design' ? '📐 階段：設計規劃' : '🔨 階段：工程施工'}
             </span>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm p-6 lg:p-8 min-h-[500px]">
+          <div className="bg-white rounded-2xl shadow-sm p-4 sm:p-6 lg:p-8 min-h-[320px] md:min-h-[500px]">
             {activeTab === 'overview' ? (
               <>
-                <h3 className="text-xl font-black text-[#004A60] mb-6 flex items-center border-b pb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#004A60] mb-4 sm:mb-6 flex items-center border-b pb-4">
                   <FileText className="w-6 h-6 mr-3 text-[#F8BB72]" /> 專案基本資訊
                 </h3>
-                <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
-                  <p className="text-gray-700 whitespace-pre-line leading-loose text-lg">{project.overview}</p>
+                <div className="bg-gray-50 p-4 sm:p-6 rounded-xl border border-gray-100">
+                  <p className="text-gray-700 whitespace-pre-line leading-loose text-base sm:text-lg break-words">{project.overview}</p>
                 </div>
               </>
             ) : (
               <>
-                <h3 className="text-xl font-black text-[#004A60] mb-6 flex items-center border-b pb-4">
-                  {React.createElement(TAB_META[activeTab].Icon, { className: 'w-6 h-6 mr-3 text-[#F8BB72]' })}
+                <h3 className="text-lg sm:text-xl font-black text-[#004A60] mb-4 sm:mb-6 flex items-center border-b pb-4">
+                  {React.createElement(TAB_META[activeTab].Icon, { className: 'w-6 h-6 mr-3 text-[#F8BB72] flex-shrink-0' })}
                   {TAB_META[activeTab].label}
                 </h3>
                 {(project[activeTab] || []).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <div className="flex flex-col items-center justify-center py-12 text-gray-400">
                     <FolderOpen className="w-16 h-16 mb-4 opacity-50" />
-                    <p className="text-lg">設計師尚未上傳此類別的檔案</p>
+                    <p className="text-base sm:text-lg text-center">設計師尚未上傳此類別的檔案</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {project[activeTab].map(item => {
                       const sig = sigs[item.id];
                       return (
-                        <div key={item.id} className="border border-gray-200 rounded-xl p-5 flex flex-col justify-between hover:shadow-md transition-shadow bg-white">
-                          <div className="mb-6">
-                            <h4 className="font-bold text-gray-800 text-lg mb-2 line-clamp-2">{item.title}</h4>
+                        <div key={item.id} className="border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between bg-white">
+                          <div className="mb-5">
+                            <h4 className="font-bold text-gray-800 text-base sm:text-lg mb-2 break-words">{item.title}</h4>
                             <p className="text-xs font-medium text-gray-500 mb-3 bg-gray-100 inline-block px-2 py-1 rounded">建檔日：{item.date}</p>
                             <ItemOpenButton
                               item={item} showToast={showToast} label="檢視 / 下載檔案"
-                              className="flex items-center justify-center p-3 rounded-lg bg-[#004A60] text-white hover:bg-opacity-90 font-bold shadow-sm w-full"
+                              className="flex items-center justify-center p-3.5 rounded-lg bg-[#004A60] text-white active:bg-[#003647] font-bold shadow-sm w-full"
                             />
                             {itemKind(item) === 'file' && (
-                              <p className="text-xs text-gray-400 mt-2 truncate">{item.fileName}（{fmtSize(item.fileSize)}）</p>
+                              <p className="text-xs text-gray-400 mt-2 break-all">{item.fileName}（{fmtSize(item.fileSize)}）</p>
                             )}
                           </div>
                           <div className="pt-4 border-t border-gray-100">
                             {sig ? (
-                              <div className="flex justify-between items-center text-sm">
+                              <div className="flex flex-wrap justify-between items-center gap-1 text-sm">
                                 <span className="font-bold text-green-600 flex items-center"><CheckCircle className="w-5 h-5 mr-1.5" /> 已回簽</span>
                                 <span className="text-xs text-gray-400">{fmtTs(sig.signedAt)}</span>
                               </div>
                             ) : (
                               <button
                                 onClick={() => setConfirm({ itemId: item.id })}
-                                className="w-full py-2.5 rounded-lg font-bold shadow-sm flex justify-center items-center bg-[#F8BB72] text-[#004A60] hover:brightness-105">
+                                className="w-full py-3.5 rounded-lg font-bold shadow-sm flex justify-center items-center bg-[#F8BB72] text-[#004A60] active:brightness-95">
                                 <PenTool className="w-4 h-4 mr-2" /> 點擊進行數位回簽
                               </button>
                             )}
@@ -585,15 +665,59 @@ const SECTION_META = {
   logs: { label: '監工日誌區', Icon: Camera },
 };
 
+// 設計師的單一項目列：手機直向堆疊、桌機橫向排列（取代原本需左右捲動的表格）
+function DesignerItemRow({ item, sig, showToast, onEdit, onDelete }) {
+  return (
+    <div className="py-4 flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+      <div className="md:flex-1 min-w-0">
+        <p className="font-bold text-gray-800 break-words">{item.title}</p>
+        <p className="text-xs text-gray-400 mt-1">
+          {item.date}
+          {itemKind(item) === 'file' && <span className="break-all"> · {item.fileName}（{fmtSize(item.fileSize)}）</span>}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <ItemOpenButton
+          item={item} showToast={showToast} label="開啟"
+          className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-2 rounded-lg text-sm font-bold min-h-[40px]"
+        />
+        {sig ? (
+          <span className="inline-flex items-center text-xs font-bold text-green-700 bg-green-100 px-2.5 py-1.5 rounded-full border border-green-200">
+            <Check className="w-3 h-3 mr-1" strokeWidth={3} /> 已簽名 · {fmtTs(sig.signedAt)}
+          </span>
+        ) : (
+          <span className="inline-block text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1.5 rounded-full">等待中</span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={onEdit} disabled={!!sig}
+          title={sig ? '已回簽的項目無法修改，如需更新請新增新版本' : '編輯'}
+          className="flex-1 md:flex-none min-h-[40px] text-[#004A60] hover:bg-gray-100 text-sm font-bold bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed">
+          編輯
+        </button>
+        <button
+          onClick={onDelete}
+          className="flex-1 md:flex-none min-h-[40px] text-red-500 hover:text-red-600 text-sm font-bold bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
+          刪除
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DesignerView({ authUser, projects, error, onLogout, toast, showToast }) {
   const [activeId, setActiveId] = useState(null);
   const [modal, setModal] = useState(null); // { type, payload }
   const [draft, setDraft] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const project = projects.find(p => p.id === activeId) || null;
   const sigs = useSignatures(project?.id);
 
   useEffect(() => { setDraft(project?.overview || ''); }, [project?.id, project?.overview]);
+
+  const selectProject = (id) => { setActiveId(id); setDrawerOpen(false); window.scrollTo({ top: 0 }); };
 
   const patchProject = async (data) => {
     try { await updateDoc(projectRef(project.id), data); return true; }
@@ -679,9 +803,9 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
   const closed = projects.filter(p => p.status === 'closed');
 
   const sidebar = (
-    <div className="space-y-6 mt-4">
-      <button onClick={() => setModal({ type: 'ADD_PROJECT' })}
-        className="w-full flex items-center justify-center p-3.5 rounded-xl font-bold shadow-lg transition-all hover:scale-105 bg-[#F8BB72] text-[#004A60]">
+    <div className="space-y-6 mt-2 md:mt-4">
+      <button onClick={() => { setDrawerOpen(false); setModal({ type: 'ADD_PROJECT' }); }}
+        className="w-full flex items-center justify-center p-3.5 rounded-xl font-bold shadow-lg transition-all md:hover:scale-105 bg-[#F8BB72] text-[#004A60]">
         <Plus className="w-5 h-5 mr-2" /> 新增設計專案
       </button>
 
@@ -691,8 +815,8 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
         </h3>
         {active.length === 0 && <p className="text-sm px-2 text-white/40">無進行中專案</p>}
         {active.map(p => (
-          <button key={p.id} onClick={() => setActiveId(p.id)}
-            className={`w-full text-left p-3 rounded-lg transition-all truncate font-medium border ${activeId === p.id ? 'bg-white/10 text-[#F8BB72] border-white/20 shadow-inner' : 'border-transparent hover:bg-white/5 text-white/80'}`}>
+          <button key={p.id} onClick={() => selectProject(p.id)}
+            className={`w-full text-left p-3.5 rounded-lg transition-all truncate font-medium border ${activeId === p.id ? 'bg-white/10 text-[#F8BB72] border-white/20 shadow-inner' : 'border-transparent hover:bg-white/5 text-white/80'}`}>
             {p.name}
           </button>
         ))}
@@ -703,8 +827,8 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
           <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mr-2"></span> 歷史歸檔
         </h3>
         {closed.map(p => (
-          <button key={p.id} onClick={() => setActiveId(p.id)}
-            className={`w-full text-left p-3 rounded-lg transition-all truncate font-medium text-sm ${activeId === p.id ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5'}`}>
+          <button key={p.id} onClick={() => selectProject(p.id)}
+            className={`w-full text-left p-3.5 rounded-lg transition-all truncate font-medium text-sm ${activeId === p.id ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5'}`}>
             {p.name}
           </button>
         ))}
@@ -713,62 +837,75 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
   );
 
   return (
-    <AppLayout sidebar={sidebar} footerLabel={`🛡️ 管理員：${authUser.email}`} onLogout={onLogout} toast={toast}>
+    <AppLayout
+      sidebar={sidebar} footerLabel={`🛡️ 管理員：${authUser.email}`} onLogout={onLogout} toast={toast}
+      mobileTitle={project?.name || 'A41 控制台'}
+      drawer drawerOpen={drawerOpen} setDrawerOpen={setDrawerOpen}
+    >
       {error && <div className="mb-4 bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100">{error}</div>}
 
       {!project ? (
-        <div className="h-full flex flex-col items-center justify-center">
-          <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-sm">
+        <div className="min-h-[60vh] flex flex-col items-center justify-center">
+          <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-xl text-center max-w-sm w-full">
             <div className="w-20 h-20 mx-auto rounded-full bg-[#004A60] flex items-center justify-center mb-6 shadow-inner">
               <FolderOpen className="w-10 h-10 text-[#F8BB72]" />
             </div>
             <h2 className="text-2xl font-black text-gray-800 mb-2">A41 控制台</h2>
-            <p className="text-gray-500">請從左側選擇專案進行管理，或建立新專案。</p>
+            <p className="text-gray-500">
+              <span className="hidden md:inline">請從左側選擇專案進行管理，或建立新專案。</span>
+              <span className="md:hidden">請開啟選單選擇專案進行管理，或建立新專案。</span>
+            </p>
+            <button onClick={() => setDrawerOpen(true)}
+              className="md:hidden mt-6 w-full py-3.5 rounded-xl font-bold bg-[#004A60] text-[#F8BB72] flex items-center justify-center">
+              <Menu className="w-5 h-5 mr-2" /> 開啟專案選單
+            </button>
           </div>
         </div>
       ) : (
-        <div className="max-w-6xl mx-auto space-y-6 pb-20">
-          <div className="bg-white rounded-2xl shadow-sm p-6 lg:p-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative overflow-hidden">
+        <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 pb-10">
+          {/* 專案標題列 */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 lg:p-8 flex flex-col lg:flex-row justify-between lg:items-center gap-5 relative overflow-hidden">
             <div className={`absolute left-0 top-0 w-2 h-full ${project.status === 'closed' ? 'bg-gray-400' : 'bg-[#004A60]'}`}></div>
-            <div>
-              <h1 className="text-2xl lg:text-3xl font-black text-gray-800 flex items-center gap-3">
-                {project.status === 'closed' && <FolderLock className="w-7 h-7 text-gray-500" />}
-                {project.name}
-                <button onClick={() => setModal({ type: 'EDIT_PROJECT' })} title="編輯專案資料"
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-[#004A60] hover:bg-gray-100 transition-colors">
+            <div className="min-w-0 pl-1">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-gray-800 flex items-start gap-2 break-words">
+                {project.status === 'closed' && <FolderLock className="w-6 h-6 mt-1 text-gray-500 flex-shrink-0" />}
+                <span className="min-w-0 break-words">{project.name}</span>
+                <button onClick={() => setModal({ type: 'EDIT_PROJECT' })} title="編輯專案資料" aria-label="編輯專案資料"
+                  className="p-2 -mt-0.5 rounded-lg text-gray-400 hover:text-[#004A60] hover:bg-gray-100 transition-colors flex-shrink-0">
                   <Pencil className="w-5 h-5" />
                 </button>
               </h1>
-              <div className="flex flex-wrap items-center gap-4 mt-3 bg-gray-50 inline-flex p-2 rounded-lg border border-gray-100">
-                <span className="text-sm font-bold text-gray-600 flex items-center"><User className="w-4 h-4 mr-1 text-gray-400" /> {project.clientName}</span>
-                <span className="text-sm font-bold text-gray-600 flex items-center"><Mail className="w-4 h-4 mr-1 text-gray-400" /> {project.clientEmail}</span>
-                {project.clientPhone && <span className="text-sm font-bold text-gray-600 flex items-center"><Phone className="w-4 h-4 mr-1 text-gray-400" /> {project.clientPhone}</span>}
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                <span className="text-sm font-bold text-gray-600 flex items-center"><User className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> {project.clientName}</span>
+                <span className="text-sm font-bold text-gray-600 flex items-center min-w-0"><Mail className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> <span className="break-all">{project.clientEmail}</span></span>
+                {project.clientPhone && <span className="text-sm font-bold text-gray-600 flex items-center"><Phone className="w-4 h-4 mr-1 text-gray-400 flex-shrink-0" /> {project.clientPhone}</span>}
               </div>
             </div>
-            <div className="flex flex-wrap gap-3 w-full lg:w-auto">
+            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
               <select
-                className={`border-2 p-2.5 rounded-xl font-bold outline-none ${project.phase === 'design' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}
+                className={`border-2 p-3 rounded-xl font-bold outline-none w-full sm:w-auto ${project.phase === 'design' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}
                 value={project.phase} onChange={e => patchProject({ phase: e.target.value })}>
-                <option value="design">📐 階段切換：設計規劃中</option>
-                <option value="construction">🔨 階段切換：工程施工中</option>
+                <option value="design">📐 階段：設計規劃中</option>
+                <option value="construction">🔨 階段：工程施工中</option>
               </select>
               <button
                 onClick={() => patchProject({ status: project.status === 'active' ? 'closed' : 'active' })}
-                className={`px-5 py-2.5 rounded-xl font-bold shadow-sm text-white ${project.status === 'active' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>
-                {project.status === 'active' ? '關閉專案 (撤銷業主權限)' : '重啟專案'}
+                className={`px-5 py-3 rounded-xl font-bold shadow-sm text-white w-full sm:w-auto ${project.status === 'active' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>
+                {project.status === 'active' ? '關閉專案（撤銷業主權限）' : '重啟專案'}
               </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm p-6 lg:p-8">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-black text-[#004A60] flex items-center">
-                <FileText className="w-5 h-5 mr-2 text-[#F8BB72]" /> 專案總覽文字 (業主首頁顯示)
+          {/* 總覽文字 */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 lg:p-8">
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+              <h3 className="text-base sm:text-lg font-black text-[#004A60] flex items-center">
+                <FileText className="w-5 h-5 mr-2 text-[#F8BB72]" /> 專案總覽文字（業主首頁顯示）
               </h3>
               <span className="text-xs text-gray-400 font-bold bg-gray-100 px-2 py-1 rounded">離開輸入框後自動儲存</span>
             </div>
             <textarea
-              className="w-full h-32 p-4 border-2 rounded-xl focus:border-[#004A60] outline-none resize-none bg-gray-50 text-gray-700 leading-relaxed font-medium"
+              className="w-full h-36 sm:h-32 p-4 border-2 rounded-xl focus:border-[#004A60] outline-none resize-none bg-gray-50 text-gray-700 leading-relaxed font-medium"
               value={draft}
               onChange={e => setDraft(e.target.value)}
               onBlur={() => { if (draft !== project.overview) patchProject({ overview: draft }); }}
@@ -776,88 +913,38 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
             />
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* 三大區塊 */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
             {Object.entries(SECTION_META).map(([type, { label, Icon }]) => {
               const items = project[type] || [];
               const dim = (project.phase === 'design' && type === 'logs') || (project.phase === 'construction' && type === 'drawings');
               const focus = (project.phase === 'design' && type === 'drawings') || (project.phase === 'construction' && type === 'logs');
               return (
-                <div key={type} className={`bg-white rounded-2xl shadow-sm p-6 flex flex-col ${type === 'meetings' ? 'xl:col-span-2' : ''} ${dim ? 'opacity-50 grayscale hover:grayscale-0 transition-all' : ''}`}>
-                  <div className="flex justify-between items-center border-b pb-4 mb-4">
-                    <h3 className="text-lg font-black text-[#004A60] flex items-center">
+                <div key={type} className={`bg-white rounded-2xl shadow-sm p-4 sm:p-6 flex flex-col ${type === 'meetings' ? 'xl:col-span-2' : ''} ${dim ? 'opacity-60 hover:opacity-100 transition-opacity' : ''}`}>
+                  <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-4 mb-2">
+                    <h3 className="text-base sm:text-lg font-black text-[#004A60] flex flex-wrap items-center gap-y-1">
                       <Icon className="w-5 h-5 mr-2 text-[#F8BB72]" /> {label}
                       {focus && <span className={`ml-3 px-2 py-1 text-xs rounded-md font-bold ${type === 'drawings' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>當前重點</span>}
                     </h3>
                     <button onClick={() => setModal({ type: 'ITEM', payload: { type, item: null } })}
-                      className="px-4 py-2 rounded-lg text-sm font-bold flex items-center shadow-sm bg-[#F8BB72] text-[#004A60] hover:brightness-105">
+                      className="px-4 py-2.5 rounded-lg text-sm font-bold flex items-center shadow-sm bg-[#F8BB72] text-[#004A60] active:brightness-95">
                       <Plus className="w-4 h-4 mr-1" /> 新增檔案
                     </button>
                   </div>
 
                   {items.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    <div className="flex-1 flex items-center justify-center py-10 mt-2 bg-gray-50 rounded-xl border border-dashed border-gray-200">
                       <p className="text-gray-400 font-medium">尚未新增資料</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto flex-1">
-                      <table className="w-full text-left border-collapse min-w-[560px]">
-                        <thead>
-                          <tr className="text-gray-400 text-sm border-b">
-                            <th className="pb-3 font-bold w-1/3">標題</th>
-                            <th className="pb-3 font-bold">檔案 / 連結</th>
-                            <th className="pb-3 font-bold text-center">回簽狀態</th>
-                            <th className="pb-3 font-bold text-right">管理</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {items.map(item => {
-                            const sig = sigs[item.id];
-                            return (
-                              <tr key={item.id} className="hover:bg-gray-50">
-                                <td className="py-4 pr-2">
-                                  <p className="font-bold text-gray-800 line-clamp-1">{item.title}</p>
-                                  <p className="text-xs text-gray-400 mt-1">{item.date}</p>
-                                </td>
-                                <td className="py-4 pr-2">
-                                  <ItemOpenButton
-                                    item={item} showToast={showToast} label="開啟"
-                                    className="inline-flex items-center text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded text-sm"
-                                  />
-                                  {itemKind(item) === 'file' && (
-                                    <p className="text-[10px] text-gray-400 mt-1 max-w-[140px] truncate">{item.fileName}（{fmtSize(item.fileSize)}）</p>
-                                  )}
-                                </td>
-                                <td className="py-4 text-center">
-                                  {sig ? (
-                                    <div className="inline-flex flex-col items-center">
-                                      <span className="inline-flex items-center text-xs font-bold text-green-700 bg-green-100 px-2.5 py-1 rounded-full border border-green-200">
-                                        <Check className="w-3 h-3 mr-1" strokeWidth={3} /> 已簽名
-                                      </span>
-                                      <span className="text-[10px] text-gray-400 mt-1">{fmtTs(sig.signedAt)}</span>
-                                    </div>
-                                  ) : (
-                                    <span className="inline-block text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">等待中</span>
-                                  )}
-                                </td>
-                                <td className="py-4 text-right whitespace-nowrap">
-                                  <button
-                                    onClick={() => setModal({ type: 'ITEM', payload: { type, item } })}
-                                    disabled={!!sig}
-                                    title={sig ? '已回簽的項目無法修改，如需更新請新增新版本' : '編輯'}
-                                    className="text-[#004A60] hover:bg-gray-100 text-sm font-bold bg-white px-3 py-1 rounded shadow-sm border border-gray-100 mr-2 disabled:opacity-30 disabled:cursor-not-allowed">
-                                    編輯
-                                  </button>
-                                  <button
-                                    onClick={() => setModal({ type: 'DELETE_ITEM', payload: { type, item, signed: !!sig } })}
-                                    className="text-red-400 hover:text-red-600 text-sm font-bold bg-white px-3 py-1 rounded shadow-sm border border-gray-100">
-                                    刪除
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                    <div className="divide-y">
+                      {items.map(item => (
+                        <DesignerItemRow
+                          key={item.id} item={item} sig={sigs[item.id]} showToast={showToast}
+                          onEdit={() => setModal({ type: 'ITEM', payload: { type, item } })}
+                          onDelete={() => setModal({ type: 'DELETE_ITEM', payload: { type, item, signed: !!sigs[item.id] } })}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
@@ -865,8 +952,8 @@ function DesignerView({ authUser, projects, error, onLogout, toast, showToast })
             })}
           </div>
 
-          <div className="mt-8 pt-8 border-t border-gray-200 flex justify-end">
-            <button onClick={deleteProject} className="text-gray-400 hover:text-red-500 text-sm font-bold underline transition-colors">
+          <div className="pt-6 border-t border-gray-200 flex justify-end">
+            <button onClick={deleteProject} className="text-gray-400 hover:text-red-500 text-sm font-bold underline transition-colors py-2">
               永久刪除此專案
             </button>
           </div>
